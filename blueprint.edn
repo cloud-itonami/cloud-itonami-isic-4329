@@ -1,0 +1,52 @@
+{:itonami.blueprint/id "cloud-itonami-4329"
+ :itonami.blueprint/name "Other Construction Installation"
+ :itonami.blueprint/isic-rev5 "4329"
+ :itonami.blueprint/domain :construction/other-installation
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:worker-safety :hazmat-containment :trade-craft-quality]
+ :itonami.blueprint/governor :installation-governor
+ :itonami.blueprint/robotics false
+ :itonami.blueprint/required-technologies [:identity :forms :audit-ledger :notifications]
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/maturity :implemented
+ :itonami.blueprint/implemented-slice
+ "`:installation-governor` is implemented end-to-end in `src/installation`
+ as an OTHER-CONSTRUCTION-INSTALLATION-PROJECT OPERATIONS COORDINATION
+ actor -- Installation Advisor (LLM proposal-only) ⊣ Installation Governor
+ (closed-op-allowlist / site-verification / pre-work hazmat-survey /
+ fall-protection / unresolved-concern hard-gates). Deliberately narrower
+ in authority than the `cloud-itonami-isic-4211` (construction) robotics-
+ premise reference this actor follows structurally, and structured after
+ the sibling `cloud-itonami-isic-4330` (building completion and
+ finishing) coordination-only actor: `:itonami.blueprint/robotics` is
+ honestly `false` here -- this actor holds NO trade-equipment-control
+ authority and NO installation-completion-sign-off authority (both are
+ HARD, permanent governor blocks, never overridable by human approval --
+ see `installation.governor` ns docstring). Every one of its four
+ proposal ops (`:log-site-record` / `:schedule-installation-operation` /
+ `:flag-safety-concern` / `:order-supplies`) carries `:effect :propose`
+ ONLY -- the governor HARD-holds any proposal that doesn't
+ (`effect-not-propose-violations`), a structural invariant distinguishing
+ this actor from siblings that DO commit real-world actuation effects.
+ Covers building-installation trade work outside 4321 (electrical) / 4322
+ (plumbing, heat and air-conditioning installation): thermal/acoustic
+ insulation, sound-proofing, elevator/escalator installation, and other
+ specialty building installation work not elsewhere classified.
+ Per-jurisdiction pre-work hazmat-survey / fall-protection legal-basis
+ catalog (JPN/USA/DEU, `installation.facts`) with real official sources
+ (independently verified against laws.e-gov.go.jp / osha.gov /
+ eur-lex.europa.eu / baua.de before being written), and mail+phone
+ safety-concern notification (`installation.notify`, a portable `.cljc`
+ caller-injected transport seam -- no JVM interop, per this repo's
+ cljs-first mandate) to the site's supervisor/safety-officer contact
+ roster. `:flag-safety-concern` ALWAYS escalates to a human, at every
+ phase, unconditionally. Like `cloud-itonami-isic-4330` and UNLIKE
+ `cloud-itonami-isic-4311`/`cloud-itonami-isic-4210`,
+ `:schedule-installation-operation` here is NOT a permanent `high-stakes`
+ member -- it MAY auto-commit at phase 3 once every HARD check clears and
+ confidence is high, reflecting building-installation trade work's
+ materially lower risk profile relative to demolition or heavy-civil
+ earthwork scheduling (see `installation.governor`/`installation.phase`
+ ns docstrings for the full rationale). See `docs/` -- README `Actuation`
+ section -- for the full governor-check enumeration and the rationale for
+ each hard/soft rule."}
