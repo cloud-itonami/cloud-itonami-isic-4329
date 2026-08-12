@@ -329,6 +329,32 @@
                  (str "<code>" (esc subject) "</code>")
                  (outcome-cell r))))))
 
+(defn- approvals-section [runs]
+  (let [granted (for [{:keys [thread-id audit]} runs
+                      {:keys [t op subject by]} audit
+                      :when (= :approval-granted t)]
+                  {:thread-id thread-id :op op :subject subject :by by})]
+    (section
+     (str "Human approvals this run (" (count granted) ")")
+     (str "Joined back from the <code>:approval-granted</code> audit facts the "
+          "<code>:request-approval</code> node itself emitted when a human resumed the paused "
+          "thread. <strong>Read the last column carefully:</strong> this attribution is NOT on the "
+          "committed record. <code>installation.operation</code> does attach the approver at "
+          "<code>[:value :approved-by]</code>, but <code>installation.store/commit-record!</code> "
+          "reads only the specific fields it needs out of <code>:value</code> and builds the "
+          "registry record from <code>installation.registry</code> — so <code>:approved-by</code> "
+          "never reaches the SSoT. Verified by reading every committed registry record back after "
+          "this run: none of them carries it. This page reports the gap rather than papering over "
+          "it with a name the store does not actually hold.")
+     (table ["Thread" "Op" "Site" "Approved by (audit fact)" "On the committed SSoT record?"]
+            (for [{:keys [thread-id op subject by]} granted]
+              (row (str "<code>" (esc thread-id) "</code>")
+                   (kw-code op)
+                   (str "<code>" (esc subject) "</code>")
+                   (str "<code>" (esc by) "</code> "
+                        "<span class=\"muted\">— audit ledger only</span>")
+                   "<span class=\"critical\">no</span> <span class=\"muted\">— attribution is dropped between the graph and the store</span>"))))))
+
 (defn- ledger-section [db]
   (let [ledger (vec (store/ledger db))]
     (section
@@ -472,6 +498,7 @@
    (phase-section)
    (holds-section db)
    (runs-section runs)
+   (approvals-section runs)
    (ledger-section db)
    (registry-section db)
    (jurisdiction-section)

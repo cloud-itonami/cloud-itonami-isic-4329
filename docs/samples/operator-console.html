@@ -2559,6 +2559,17 @@ img,svg { max-width: 100%; height: auto; }</style></head>
     </table>
   </section>
   <section class="card">
+    <h2>Human approvals this run (2)</h2>
+    <p class="muted">Joined back from the <code>:approval-granted</code> audit facts the <code>:request-approval</code> node itself emitted when a human resumed the paused thread. <strong>Read the last column carefully:</strong> this attribution is NOT on the committed record. <code>installation.operation</code> does attach the approver at <code>[:value :approved-by]</code>, but <code>installation.store/commit-record!</code> reads only the specific fields it needs out of <code>:value</code> and builds the registry record from <code>installation.registry</code> — so <code>:approved-by</code> never reaches the SSoT. Verified by reading every committed registry record back after this run: none of them carries it. This page reports the gap rather than papering over it with a name the store does not actually hold.</p>
+    <table>
+      <thead><tr><th>Thread</th><th>Op</th><th>Site</th><th>Approved by (audit fact)</th><th>On the committed SSoT record?</th></tr></thead>
+      <tbody>
+        <tr><td><code>t3</code></td><td><code>:flag-safety-concern</code></td><td><code>site-1</code></td><td><code>op-1</code> <span class="muted">— audit ledger only</span></td><td><span class="critical">no</span> <span class="muted">— attribution is dropped between the graph and the store</span></td></tr>
+        <tr><td><code>t6</code></td><td><code>:order-supplies</code></td><td><code>site-1</code></td><td><code>op-1</code> <span class="muted">— audit ledger only</span></td><td><span class="critical">no</span> <span class="muted">— attribution is dropped between the graph and the store</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="card">
     <h2>Audit ledger (14 facts)</h2>
     <p class="muted">The append-only decision-fact log. Only the <code>:commit</code> and <code>:hold</code> nodes write here. <code>Basis</code> counts the official sources the advisor cited and the governor accepted (committed facts), or names the violated rules (holds).</p>
     <table>
