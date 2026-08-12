@@ -1,0 +1,503 @@
+(ns installation.render-html
+  "Build-time HTML renderer for `docs/samples/operator-console.html`.
+
+  Closes flagship checklist item 2 (com-junkawasaki/root ADR-2607189300):
+  this repo previously had NO demo page and no generator at all. This
+  namespace drives the REAL actor stack (`installation.operation` ->
+  `installation.governor` -> `installation.store`) over the REAL seeded
+  site directory (`installation.store/demo-data`, sites `site-1`..
+  `site-8`) through the scenario this repo's OWN demo driver
+  `installation.sim` already exercises (`clojure -M:dev:run`, run and
+  read BEFORE this file was written to confirm the seeded site ids, the
+  request shapes and the resulting ledger).
+
+  NOTHING on the rendered page is hand-typed domain content. Every site
+  id, site name, jurisdiction, working height, record number, contact
+  address, rule keyword, violation detail, legal citation and
+  disposition is read back out of the store / governor / registry /
+  notifier after the actor graph has actually run. The gate parameters
+  are read from the real vars (`installation.governor/confidence-floor`,
+  `.../supply-order-cost-threshold-usd`, `.../closed-op-allowlist`,
+  `.../high-stakes`, `installation.phase/phases`) rather than being
+  described in prose, so the page cannot drift away from the code.
+
+  Deterministic: no clock, no randomness, no network, and every map/set
+  read out of the code is sorted before it is rendered, so the output is
+  byte-identical across reruns.
+
+  Usage: `clojure -M:dev:render-html [out-file]`
+  (default `docs/samples/operator-console.html`)."
+  (:require [clojure.string :as str]
+            [jp-go-dds.skin :as skin]
+            [installation.facts :as facts]
+            [installation.governor :as governor]
+            [installation.notify :as notify]
+            [installation.operation :as op]
+            [installation.phase :as phase]
+            [installation.store :as store]
+            [langgraph.graph :as g]))
+
+(def ^:private operator
+  "The same injected operator context `installation.sim` uses."
+  {:actor-id "op-1" :actor-role :site-supervisor :phase 3})
+
+;; ----------------------------- the real run -----------------------------
+
+(defn run-demo!
+  "Runs a freshly seeded store through the scenario `installation.sim`
+  drives, exercising every disposition this actor can reach:
+
+    - `site-1` walks a full coordination episode -- a site-record log
+      entry (AUTO-COMMITS at phase 3), an insulation schedule proposal
+      (AUTO-COMMITS -- deliberately lower-stakes than the sibling
+      demolition/road-rail schedule ops, see `installation.phase`), a
+      safety-concern flag (ALWAYS escalates at every phase; a human
+      approves and only then is the notice actually dispatched to the
+      site's contact roster), the concern's resolution logged, a supply
+      order below the cost threshold (AUTO-COMMITS) and one above it
+      (escalates, approved).
+    - `site-2`..`site-6` and one off-allowlist request produce SIX HARD
+      holds that never reach a human: an uncovered jurisdiction with no
+      official spec-basis, a site that is not independently verified, an
+      incomplete pre-work hazmat survey, a confirmed fall-protection
+      violation recomputed independently from the site's own recorded
+      working height, an unresolved safety concern on file, and an op
+      outside the closed four-op allowlist.
+    - `site-7` (USA, quantitative trigger, above the trigger height but
+      compliant because fall protection is installed) and `site-8`
+      (DEU/EU, honestly qualitative -- no numeric trigger is ever
+      fabricated) prove the cross-jurisdiction path still commits.
+
+  Returns `{:db .. :notifier .. :runs [..]}` -- `:runs` is every graph
+  invocation in order, with the disposition and audit facts the graph
+  itself produced."
+  []
+  (let [db       (store/seed-db)
+        notifier (notify/mock-notifier)
+        actor    (op/build db {:notifier notifier})
+        runs     (atom [])
+        record!  (fn [kind tid state]
+                   (swap! runs conj
+                          {:kind        kind
+                           :thread-id   tid
+                           :op          (get-in state [:request :op])
+                           :subject     (get-in state [:request :subject])
+                           :disposition (:disposition state)
+                           :audit       (vec (:audit state))})
+                   state)
+        exec!    (fn [tid request]
+                   (record! :request tid
+                            (:state (g/run* actor {:request request :context operator}
+                                            {:thread-id tid}))))
+        approve! (fn [tid]
+                   (record! :approval tid
+                            (:state (g/run* actor {:approval {:status :approved :by "op-1"}}
+                                            {:thread-id tid :resume? true}))))]
+
+    ;; site-1 -- full coordination episode
+    (exec! "t1" {:op :log-site-record :subject "site-1"
+                 :patch {:id "site-1" :hazmat-detected? false}})
+
+    (exec! "t2" {:op :schedule-installation-operation :subject "site-1"
+                 :trade :insulation
+                 :window {:proposed-start-date "2026-08-01" :proposed-end-date "2026-08-10"}
+                 :notes "屋根裏断熱材吹込み工事"})
+
+    (exec! "t3" {:op :flag-safety-concern :subject "site-1"
+                 :concern-type :fiber-exposure
+                 :concern-description "既存断熱材の撤去中にグラスウール粉じんの飛散を確認、追加調査が必要。"})
+    (approve! "t3")
+
+    (exec! "t4" {:op :log-site-record :subject "site-1"
+                 :patch {:id "site-1" :safety-concern-unresolved? false}})
+
+    (exec! "t5" {:op :order-supplies :subject "site-1"
+                 :items ["glass-wool-batt-100mm" "vapor-barrier-roll"]
+                 :cost-usd 800 :vendor "Local Building Supply Co."})
+
+    (exec! "t6" {:op :order-supplies :subject "site-1"
+                 :items ["elevator-hoist-motor"]
+                 :cost-usd 9000 :vendor "Access Equipment Rentals"})
+    (approve! "t6")
+
+    ;; the six HARD holds -- none of these ever reaches a human
+    (exec! "t7"  {:op :schedule-installation-operation :subject "site-2"
+                  :trade :elevator-installation :window {}})
+    (exec! "t8"  {:op :schedule-installation-operation :subject "site-3"
+                  :trade :sound-proofing :window {}})
+    (exec! "t9"  {:op :schedule-installation-operation :subject "site-4"
+                  :trade :insulation :window {}})
+    (exec! "t10" {:op :schedule-installation-operation :subject "site-5"
+                  :trade :escalator-installation :window {}})
+    (exec! "t11" {:op :schedule-installation-operation :subject "site-6"
+                  :trade :elevator-installation :window {}})
+    (exec! "t12" {:op :direct-equipment-command :subject "site-1"})
+
+    ;; cross-jurisdiction: USA (quantitative, compliant) and DEU/EU (qualitative)
+    (exec! "t13" {:op :schedule-installation-operation :subject "site-7"
+                  :trade :insulation
+                  :window {:proposed-start-date "2026-09-01" :proposed-end-date "2026-09-10"}})
+    (exec! "t14" {:op :schedule-installation-operation :subject "site-8"
+                  :trade :sound-proofing
+                  :window {:proposed-start-date "2026-09-15" :proposed-end-date "2026-09-25"}})
+
+    {:db db :notifier notifier :runs @runs}))
+
+(defn- holds
+  "Every HARD `:governor-hold` fact the run actually wrote to the ledger."
+  [db]
+  (filterv #(= :governor-hold (:t %)) (store/ledger db)))
+
+;; ----------------------------- rendering helpers -----------------------------
+
+(defn- esc [v]
+  (-> (str v)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
+
+(def ^:private nbsp-dash "<span class=\"muted\">—</span>")
+
+(defn- kw-code [k] (str "<code>" (esc k) "</code>"))
+
+(defn- kw-list
+  "Sorted, code-formatted rendering of a set/seq of keywords -- sorted so
+  the page never depends on set iteration order."
+  [ks]
+  (if (seq ks)
+    (str/join " " (map kw-code (sort-by str ks)))
+    nbsp-dash))
+
+(defn- flag-cell
+  "Render a tri-state ground-truth boolean. `good` says which value is
+  the compliant one, so the colour matches the governor's own reading."
+  [v good]
+  (cond
+    (nil? v)   "<span class=\"muted\">not recorded</span>"
+    (= v good) (str "<span class=\"ok\">" (esc v) "</span>")
+    :else      (str "<span class=\"critical\">" (esc v) "</span>")))
+
+(defn- table [head-cells body-rows]
+  (str "    <table>\n"
+       "      <thead><tr>"
+       (str/join (map #(str "<th>" % "</th>") head-cells))
+       "</tr></thead>\n"
+       "      <tbody>\n"
+       (str/join "\n" body-rows) "\n"
+       "      </tbody>\n"
+       "    </table>\n"))
+
+(defn- row [& cells]
+  (str "        <tr>" (str/join (map #(str "<td>" % "</td>") cells)) "</tr>"))
+
+(defn- section [title lede body]
+  (str "  <section class=\"card\">\n"
+       "    <h2>" title "</h2>\n"
+       (when lede (str "    <p class=\"muted\">" lede "</p>\n"))
+       body
+       "  </section>\n"))
+
+;; ----------------------------- sections -----------------------------
+
+(defn- last-fact-for [ledger site-id]
+  (last (filter #(= (:subject %) site-id) ledger)))
+
+(defn- status-cell [ledger site-id]
+  (let [f (last-fact-for ledger site-id)]
+    (cond
+      (nil? f) "<span class=\"muted\">no activity</span>"
+      (= :committed (:t f))
+      (str "<span class=\"ok\">committed</span> " (kw-code (:op f)))
+      (= :governor-hold (:t f))
+      (str "<span class=\"critical\">HARD hold</span> "
+           (str/join " " (map kw-code (:basis f))))
+      :else "<span class=\"muted\">in progress</span>")))
+
+(defn- sites-section [db]
+  (let [ledger (vec (store/ledger db))]
+    (section
+     "Site directory (SSoT snapshot after the run)"
+     (str "Read back from <code>installation.store</code> after the actor graph ran. "
+          "The <code>:site-verified?</code> / <code>:hazmat-survey-completed?</code> / "
+          "<code>:scaffold-working-height-m</code> / <code>:fall-protection-installed?</code> / "
+          "<code>:safety-concern-unresolved?</code> columns are the ground-truth fields the "
+          "Installation Governor re-checks independently — they are never trusted from a proposal.")
+     (table ["Site" "Name" "Juris." "Trades" "Verified" "Hazmat survey"
+             "Work height" "Fall protection" "Concern open" "Status" "Last ledger fact"]
+            (for [{:keys [id name jurisdiction trades site-verified? hazmat-survey-completed?
+                          scaffold-working-height-m fall-protection-installed?
+                          safety-concern-unresolved? status]} (store/all-sites db)]
+              (row (str "<code>" (esc id) "</code>")
+                   (esc name)
+                   (esc jurisdiction)
+                   (kw-list trades)
+                   (flag-cell site-verified? true)
+                   (flag-cell hazmat-survey-completed? true)
+                   (if (nil? scaffold-working-height-m)
+                     nbsp-dash
+                     (str "<span class=\"num\">" (esc scaffold-working-height-m) " m</span>"))
+                   (flag-cell fall-protection-installed? true)
+                   (flag-cell safety-concern-unresolved? false)
+                   (kw-code status)
+                   (status-cell ledger id)))))))
+
+(defn- gate-section []
+  (section
+   "Action gate (Installation Governor)"
+   (str "Every parameter below is read out of the live vars in "
+        "<code>installation.governor</code> and <code>installation.phase</code>, not described in prose. "
+        "The eight HARD checks are un-overridable: a human approver cannot release them. "
+        "The confidence floor and the supply-order cost threshold are SOFT — they route to a human, "
+        "who may approve.")
+   (table ["Gate parameter" "Value (live var)"]
+          [(row "Closed op allowlist <code>governor/closed-op-allowlist</code>"
+                (kw-list governor/closed-op-allowlist))
+           (row "Always escalates to a human <code>governor/high-stakes</code>"
+                (kw-list governor/high-stakes))
+           (row "Confidence floor <code>governor/confidence-floor</code>"
+                (str "<span class=\"num\">" (esc governor/confidence-floor) "</span>"))
+           (row "Supply-order escalation threshold <code>governor/supply-order-cost-threshold-usd</code>"
+                (str "<span class=\"num\">" (esc governor/supply-order-cost-threshold-usd) " USD</span>"))
+           (row "Effect carried by every proposal"
+                (str (kw-code :propose)
+                     " <span class=\"muted\">— coordination-only actor; it never dispatches a trade crew"
+                     " or finalizes an installation-completion sign-off</span>"))])))
+
+(defn- phase-section []
+  (section
+   "Rollout phase gate"
+   (str "From <code>installation.phase/phases</code>. This run used phase "
+        "<code>" (esc (:phase operator)) "</code> (the repo default is "
+        "<code>" (esc phase/default-phase) "</code>). "
+        "A governor HOLD always stays a HOLD regardless of phase; the phase can only add caution.")
+   (table ["Phase" "Label" "May write" "May auto-commit when governor-clean"]
+          (for [[p {:keys [label writes auto]}] (sort-by key phase/phases)]
+            (row (str "<span class=\"num\">" (esc p) "</span>"
+                      (when (= p (:phase operator)) " <span class=\"badge\">this run</span>"))
+                 (esc label)
+                 (kw-list writes)
+                 (kw-list auto))))))
+
+(defn- holds-section [db]
+  (let [hs (holds db)]
+    (section
+     (str "HARD governor holds this run (" (count hs) ")")
+     (str "Written to the append-only ledger by the <code>:hold</code> node. None of these ever "
+          "reached the human-approval node — a HARD violation is not something an approver can "
+          "override. Rules and details are the governor's own output.")
+     (table ["Site" "Op" "Rules" "Detail (governor output)" "Advisor confidence"]
+            (for [{:keys [subject op basis violations confidence]} hs]
+              (row (str "<code>" (esc subject) "</code>")
+                   (kw-code op)
+                   (str/join " " (map #(str "<span class=\"critical\">" (esc %) "</span>") basis))
+                   (str "<ul>"
+                        (str/join (for [v violations]
+                                    (str "<li>" (esc (:detail v)) "</li>")))
+                        "</ul>")
+                   (str "<span class=\"num\">" (esc confidence) "</span>")))))))
+
+(defn- outcome-cell [{:keys [kind disposition audit]}]
+  (let [ts (set (map :t audit))]
+    (cond
+      (and (= :commit disposition) (ts :approval-granted))
+      "<span class=\"ok\">committed after human approval</span>"
+      (= :commit disposition)
+      "<span class=\"ok\">auto-committed</span>"
+      (= :escalate disposition)
+      "<span class=\"warn\">escalated — paused for human approval</span>"
+      (and (= :hold disposition) (ts :governor-hold))
+      "<span class=\"critical\">HARD hold — never reaches a human</span>"
+      (= :hold disposition)
+      "<span class=\"critical\">held</span>"
+      :else
+      (str "<span class=\"muted\">" (esc (or disposition kind)) "</span>"))))
+
+(defn- runs-section [runs]
+  (section
+   (str "Graph invocations this run (" (count runs) ")")
+   (str "One row per <code>langgraph.graph/run*</code> call against the compiled "
+        "<code>installation.operation</code> actor. A <code>resume</code> row is a human operator "
+        "resuming a thread that <code>interrupt-before #{:request-approval}</code> paused — the "
+        "approval is a real graph interrupt, not a rendering convention.")
+   (table ["Thread" "Kind" "Op" "Site" "Outcome"]
+          (for [{:keys [thread-id kind op subject] :as r} runs]
+            (row (str "<code>" (esc thread-id) "</code>")
+                 (if (= :approval kind)
+                   "<span class=\"warn\">resume (human approval)</span>"
+                   "<span class=\"muted\">request</span>")
+                 (kw-code op)
+                 (str "<code>" (esc subject) "</code>")
+                 (outcome-cell r))))))
+
+(defn- ledger-section [db]
+  (let [ledger (vec (store/ledger db))]
+    (section
+     (str "Audit ledger (" (count ledger) " facts)")
+     (str "The append-only decision-fact log. Only the <code>:commit</code> and <code>:hold</code> "
+          "nodes write here. <code>Basis</code> counts the official sources the advisor cited and "
+          "the governor accepted (committed facts), or names the violated rules (holds).")
+     (table ["#" "Fact" "Op" "Site" "Disposition" "Basis" "Summary / violation"]
+            (map-indexed
+             (fn [i {:keys [t op subject disposition basis summary violations]}]
+               (row (str "<span class=\"num\">" (inc i) "</span>")
+                    (if (= t :governor-hold)
+                      (str "<span class=\"critical\">" (esc t) "</span>")
+                      (str "<span class=\"ok\">" (esc t) "</span>"))
+                    (kw-code op)
+                    (str "<code>" (esc subject) "</code>")
+                    (kw-code disposition)
+                    (if (= t :governor-hold)
+                      (str/join " " (map kw-code basis))
+                      (str "<span class=\"num\">" (count basis) "</span>"
+                           " <span class=\"muted\">cited source"
+                           (when (not= 1 (count basis)) "s") "</span>"))
+                    (if (= t :governor-hold)
+                      (str/join "; " (map #(esc (:detail %)) violations))
+                      (esc summary))))
+             ledger)))))
+
+(defn- registry-section [db]
+  (let [groups [["Site-record log" :log-site-record (store/site-record-log-history db)]
+                ["Installation-operation schedule proposals" :schedule-installation-operation
+                 (store/schedule-proposal-history db)]
+                ["Safety-concern flags" :flag-safety-concern (store/safety-concern-flag-history db)]
+                ["Supply-order proposals" :order-supplies (store/supply-order-proposal-history db)]]]
+    (section
+     "Coordination artifacts committed (jurisdiction-scoped registries)"
+     (str "Record numbers are built by <code>installation.registry</code> from a "
+          "jurisdiction-scoped sequence counter. There is no international check-digit standard for "
+          "any of these references and this actor does not invent one. Every one of these is a "
+          "PROPOSAL/LOG record — none of them dispatches equipment or signs off a completed "
+          "installation.")
+     (table ["Register" "Op" "Record number" "Kind" "Site" "Juris." "Immutable"]
+            (for [[label op records] groups
+                  r records]
+              (row (esc label)
+                   (kw-code op)
+                   (str "<code>" (esc (get r "record_id")) "</code>")
+                   (esc (get r "kind"))
+                   (str "<code>" (esc (get r "site_id")) "</code>")
+                   (esc (get r "jurisdiction"))
+                   (str "<span class=\"ok\">" (esc (get r "immutable")) "</span>")))))))
+
+(defn- jurisdiction-section []
+  (let [cov (facts/coverage)]
+    (section
+     (str "Jurisdiction spec-basis catalog (" (:covered cov) " of " (:requested cov) " seeded)")
+     (str "From <code>installation.facts/catalog</code>. A jurisdiction absent from this table has "
+          "NO spec-basis, full stop — the advisor must not fabricate one and the governor holds if "
+          "it tries (see <code>site-2</code>, jurisdiction <code>ATL</code>, above). "
+          "<code>:qualitative</code> jurisdictions have no fixed numeric trigger height in law, and "
+          "this actor does not invent one to make them look automatable.")
+     (table ["ISO3" "Name" "Owning authority" "Threshold model" "Fall-protection trigger"
+             "Hazmat-survey source" "Fall-protection source"]
+            (for [[iso3 {:keys [name owner-authority threshold-model
+                                fall-protection-trigger-height-m
+                                hazmat-survey-provenance fall-protection-provenance]}]
+                  (sort-by key facts/catalog)]
+              (row (str "<code>" (esc iso3) "</code>")
+                   (esc name)
+                   (esc owner-authority)
+                   (kw-code threshold-model)
+                   (if (nil? fall-protection-trigger-height-m)
+                     (str nbsp-dash " <span class=\"muted\">no fixed numeric trigger in law</span>")
+                     (str "<span class=\"num\">" (esc fall-protection-trigger-height-m) " m</span>"))
+                   (str "<a href=\"" (esc hazmat-survey-provenance) "\">"
+                        (esc hazmat-survey-provenance) "</a>")
+                   (str "<a href=\"" (esc fall-protection-provenance) "\">"
+                        (esc fall-protection-provenance) "</a>")))))))
+
+(defn- notices-section [notifier]
+  (let [sent (notify/sent-log notifier)]
+    (section
+     (str "Safety-concern notices actually dispatched (" (count sent) ")")
+     (str "Sent by <code>installation.notify</code> through the injected Notifier from the "
+          "<code>:commit</code> node — and ONLY after a human approved the "
+          "<code>:flag-safety-concern</code> proposal, which is never auto-eligible at any phase. "
+          "The recipients are the site's own <code>:safety-contacts</code> roster (the site "
+          "supervisor / safety officer), never a trade crew.")
+     (table ["Channel" "To" "Status" "Subject / message"]
+            (for [{:keys [channel to status subject message]} sent]
+              (row (kw-code channel)
+                   (str "<code>" (esc to) "</code>")
+                   (str "<span class=\"ok\">" (esc status) "</span>")
+                   (esc (or subject message))))))))
+
+(defn- notice-document-section [db]
+  (let [docs (keep #(get-in % ["document"]) (store/safety-concern-flag-history db))]
+    (when (seq docs)
+      (section
+       "Safety-concern notice document (verbatim)"
+       (str "Rendered by <code>installation.registry/render-safety-concern-notice</code>, citing the "
+            "jurisdiction's pre-work hazmat-survey legal basis inline so the notice is "
+            "self-evidencing about which law grounds the concern.")
+       (str "    <pre><code>" (esc (str/join "\n" docs)) "</code></pre>\n")))))
+
+;; ----------------------------- document -----------------------------
+
+(defn render
+  "Renders the whole operator-console document from the result of
+  `run-demo!` (or any other real scenario over this repo's actor)."
+  [{:keys [db notifier runs]}]
+  (str
+   "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\">"
+   "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">"
+   "<meta name=\"color-scheme\" content=\"light\">"
+   "<title>cloud-itonami-isic-4329 · Other construction installation — Operator Console</title>"
+   "<style>" (skin/dds+skin) "</style></head>\n<body>\n"
+   "<header class=\"bar\">\n"
+   "  <h1>Other construction installation (ISIC 4329) — Operator Console</h1>\n"
+   "</header>\n"
+   "<p class=\"subtitle\">Thermal &amp; acoustic insulation, sound-proofing, elevator/escalator "
+   "installation and other specialty building-installation work. "
+   "<span class=\"badge\">read-only sample</span> "
+   "<span class=\"badge\">governor-gated</span> "
+   "<span class=\"badge\">coordination-only — no actuation</span></p>\n"
+   "<main>\n"
+   (section
+    "What this actor may and may not do"
+    nil
+    (str "    <p>This is a <strong>coordination-only</strong> actor. Every proposal it can produce "
+         "carries <code>:effect :propose</code> and nothing else — committing here means a "
+         "coordination artifact (a site-record entry, a schedule proposal, a safety-concern flag, a "
+         "supply-order proposal) is now logged in the SSoT and the audit ledger. It never dispatches "
+         "a trade crew, never authorises trade-equipment use, and never finalises an "
+         "installation-completion sign-off; that authority is the site supervisor / building "
+         "official's exclusively.</p>\n"
+         "    <p class=\"muted\">The Installation Advisor is a contained, untrusted intelligence node. "
+         "Its proposal is always routed through the independent Installation Governor and the "
+         "rollout-phase gate before anything touches the store.</p>\n"))
+   (sites-section db)
+   (gate-section)
+   (phase-section)
+   (holds-section db)
+   (runs-section runs)
+   (ledger-section db)
+   (registry-section db)
+   (jurisdiction-section)
+   (notices-section notifier)
+   (notice-document-section db)
+   "</main>\n"
+   "<footer>\n"
+   "Generated at build time by <code>installation.render-html</code> "
+   "(<code>clojure -M:dev:render-html</code>) by driving the real "
+   "<code>installation.operation</code> actor graph over the real "
+   "<code>installation.store</code> seed. Deterministic — no clock, no randomness, no network. "
+   "No usage, revenue or performance metric is claimed anywhere on this page.\n"
+   "</footer>\n</body>\n</html>\n"))
+
+(defn -main [& args]
+  (let [out (or (first args) "docs/samples/operator-console.html")
+        {:keys [db runs] :as result} (run-demo!)
+        hs (holds db)]
+    ;; A console that shows no real HARD hold is not evidence of a governor.
+    (when (empty? hs)
+      (throw (ex-info "no :governor-hold fact on the ledger — refusing to write a console that shows no real hold"
+                      {:ledger-facts (count (store/ledger db))})))
+    (let [f (java.io.File. ^String out)]
+      (when-let [p (.getParentFile f)] (.mkdirs p))
+      (spit f (render result)))
+    (println "wrote" out
+             (str "(" (count (store/ledger db)) " ledger facts, "
+                  (count hs) " HARD holds, "
+                  (count runs) " graph invocations)"))))
