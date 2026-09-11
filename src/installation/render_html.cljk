@@ -7,7 +7,7 @@
   `installation.governor` -> `installation.store`) over the REAL seeded
   site directory (`installation.store/demo-data`, sites `site-1`..
   `site-8`) through the scenario this repo's OWN demo driver
-  `installation.sim` already exercises (`clojure -M:dev:run`, run and
+  `installation.sim` already exercises (`kbb -M:dev:run`, run and
   read BEFORE this file was written to confirm the seeded site ids, the
   request shapes and the resulting ledger).
 
@@ -25,7 +25,7 @@
   read out of the code is sorted before it is rendered, so the output is
   byte-identical across reruns.
 
-  Usage: `clojure -M:dev:render-html [out-file]`
+  Usage: `kbb -M:dev:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [kotoba.lang.text :as str]
             [jp-go-dds.skin :as skin]
@@ -507,7 +507,7 @@
    "</main>\n"
    "<footer>\n"
    "Generated at build time by <code>installation.render-html</code> "
-   "(<code>clojure -M:dev:render-html</code>) by driving the real "
+   "(<code>kbb -M:dev:render-html</code>) by driving the real "
    "<code>installation.operation</code> actor graph over the real "
    "<code>installation.store</code> seed. Deterministic — no clock, no randomness, no network. "
    "No usage, revenue or performance metric is claimed anywhere on this page.\n"
