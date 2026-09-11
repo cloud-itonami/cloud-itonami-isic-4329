@@ -98,7 +98,7 @@ ClojureScript, `nbb`, and `kotoba wasm`/`clojurewasm`.
 | `:flag-safety-concern` | surface an insulation-fiber-exposure materials hazard (fiberglass/mineral-wool dust, or legacy asbestos-containing insulation) / structural / fall-protection concern | Drafts a safety-concern flag; ALWAYS escalates to a human, unconditionally. Once approved, `installation.notify` sends the notice (mail + phone) to the site's supervisor/safety-officer contact roster. |
 | `:order-supplies` | materials/equipment procurement proposal | Drafts a supply-order proposal. Escalates above a cost threshold or below the confidence floor; may auto-commit at phase 3 otherwise. |
 
-**Legal basis is data, not code** -- `src/installation/facts.cljc`'s
+**Legal basis is data, not code** -- `src/installation/facts.cljk`'s
 `catalog` is the per-jurisdiction EDN source-of-truth the governor checks
 every `:schedule-installation-operation` proposal against (JPN/USA/DEU
 seeded; DEU stands in for the EU, the same convention
