@@ -39,15 +39,16 @@
        io.github.com-junkawasaki/langgraph-clj
         {:local/root "../../kotoba-lang/langgraph"}
         io.github.kotoba-lang/langchain-store
-        {:local/root "../../kotoba-lang/langchain-store"}
+        {:local/root "../../kotoba-lang/kotoba/lib/kotoba.langchainStore"}
         ;; デジタル庁デザインシステム(DADS) -- the workspace's BASE design
         ;; system (superproject AGENTS.md "UI/UX 標準"). Used by
         ;; `installation.render-html` to style docs/samples/operator-console.html
         ;; via `jp-go-dds.skin/dds+skin`. Consumed as a git dep (not
         ;; :local/root) so a standalone fork of this repo can still render.
         io.github.kotoba-lang/jp-go-digital-design-system
-        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system"
-         :git/sha "83db99546eabc53613ae826ea41d1533a3c574af"}}
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "e09192276fd6a111dfb9959bfc75ddeba555e840"
+         :deps/root "lib/kotoba.jpGoDigitalDesignSystem"}}
  :aliases
  {;; This alias held an :override-deps entry for the retired coordinate
   ;; io.github.com-junkawasaki/langchain-clj. langgraph declares the same
